@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Recognition Search</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 Face Recognition Search</h1>
+            <p>Upload or paste a face image to find all matching photos</p>
+        </header>
+
+        <div class="upload-section">
+            <div class="input-group">
+                <label for="directory">📁 Search Directory:</label>
+                <input 
+                    type="text" 
+                    id="directory" 
+                    placeholder="Enter the directory path to search (e.g., C:\Photos)"
+                    value=""
+                >
+                <button onclick="browseDirectory()" class="browse-btn">Browse</button>
+            </div>
+
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-content">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <p><strong>Drop image here</strong> or click to upload</p>
+                    <p class="hint">You can also paste (Ctrl+V) a screenshot</p>
+                </div>
+                <input 
+                    type="file" 
+                    id="fileInput" 
+                    accept="image/*"
+                    style="display: none;"
+                >
+                <img id="previewImage" style="display: none; max-width: 100%; max-height: 300px; margin-top: 10px;">
+            </div>
+
+            <button id="searchBtn" class="search-btn" onclick="searchFaces()">
+                Search for Matching Faces
+            </button>
+        </div>
+
+        <div id="statusMessage" class="status-message"></div>
+
+        <div id="resultsSection" class="results-section" style="display: none;">
+            <div class="results-header">
+                <h2>Results</h2>
+                <div class="results-actions">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="selectAll" onclick="toggleSelectAll()">
+                        <span>Select All Visible</span>
+                    </label>
+                    <button onclick="selectAboveThreshold()" class="select-threshold-btn">
+                        ✓ Select Above Threshold
+                    </button>
+                    <button onclick="exportSelected()" class="export-btn" id="exportBtn" disabled>
+                        📤 Export Selected
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Progress Bar -->
+            <div id="progressBar" class="progress-bar-container" style="display: none;">
+                <div class="progress-info">
+                    <span id="progressText">Searching...</span>
+                    <span id="progressPercent">0%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+            </div>
+            
+            <div class="filter-section">
+                <div class="filter-controls">
+                    <label for="filterThreshold">🎯 Filter by Similarity: <span id="filterThresholdValue">30</span>%</label>
+                    <input 
+                        type="range" 
+                        id="filterThreshold" 
+                        min="30" 
+                        max="95" 
+                        value="30" 
+                        step="5"
+                        oninput="updateFilterThreshold(this.value)"
+                        style="width: 100%;"
+                    >
+                    <p class="hint">Adjust to show only matches above this threshold</p>
+                </div>
+            </div>
+            
+            <div id="resultsCount" class="results-count"></div>
+            <div id="resultsGrid" class="results-grid"></div>
+        </div>
+    </div>
+
+    <!-- Image Viewer Popup -->
+    <div id="imagePopup" class="image-popup" style="display: none;" onclick="closeImagePopup()">
+        <div class="image-popup-content" onclick="event.stopPropagation()">
+            <span class="close-popup" onclick="closeImagePopup()">&times;</span>
+            <img id="popupImage" src="" alt="Image viewer">
+            <div class="popup-info" id="popupInfo"></div>
+        </div>
+    </div>
+
+    <!-- Directory Browser (hidden file input for export) -->
+    <input type="file" id="exportDirPicker" webkitdirectory directory style="display: none;" onchange="handleExportDirectorySelection(event)">
+
+    <script>
+        let selectedFile = null;
+        let allMatches = []; // Store all matches for filtering
+        let currentFilterThreshold = 30;
+
+        // File input handling
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const previewImage = document.getElementById('previewImage');
+        const directoryInput = document.getElementById('directory');
+
+        // Click to upload
+        uploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFile(e.target.files[0]);
+        });
+
+        // Drag and drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            handleFile(e.dataTransfer.files[0]);
+        });
+
+        // Paste from clipboard
+        document.addEventListener('paste', (e) => {
+            const items = e.clipboardData.items;
+            for (let item of items) {
+                if (item.type.indexOf('image') !== -1) {
+                    const blob = item.getAsFile();
+                    handleFile(blob);
+                    break;
+                }
+            }
+        });
+
+        function handleFile(file) {
+            if (!file || !file.type.startsWith('image/')) {
+                showStatus('Please select a valid image file', 'error');
+                return;
+            }
+
+            selectedFile = file;
+            
+            // Show preview
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                previewImage.src = e.target.result;
+                previewImage.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+
+            showStatus('Image loaded successfully! Ready to search.', 'success');
+        }
+
+        function browseDirectory() {
+            // Create a hidden file input for directory selection
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.webkitdirectory = true;
+            input.directory = true;
+            input.onchange = (e) => {
+                if (e.target.files.length > 0) {
+                    // Get the directory path from the first file
+                    const firstFile = e.target.files[0];
+                    let dirPath = firstFile.path || firstFile.webkitRelativePath;
+                    
+                    // Extract directory path
+                    if (dirPath) {
+                        const pathParts = dirPath.split(/[/\\]/);
+                        pathParts.pop(); // Remove filename
+                        dirPath = pathParts.join('\\');
+                        
+                        // For webkitRelativePath, we get relative path, so just use the folder name
+                        if (firstFile.webkitRelativePath && !firstFile.path) {
+                            const folderName = firstFile.webkitRelativePath.split('/')[0];
+                            showStatus('Browser security limits: Please manually type the full path for "' + folderName + '"', 'warning');
+                        } else {
+                            directoryInput.value = dirPath;
+                            showStatus('Directory selected: ' + dirPath, 'success');
+                        }
+                    } else {
+                        showStatus('Please manually type or paste the full directory path', 'info');
+                    }
+                }
+            };
+            input.click();
+        }
+
+        function updateFilterThreshold(value) {
+            currentFilterThreshold = parseInt(value);
+            document.getElementById('filterThresholdValue').textContent = value;
+            
+            // Re-filter and display results
+            if (allMatches.length > 0) {
+                displayResults(allMatches, allMatches.length);
+            }
+        }
+
+        function selectAboveThreshold() {
+            const checkboxes = document.querySelectorAll('.result-checkbox');
+            selectedImages.clear();
+            
+            checkboxes.forEach(checkbox => {
+                const card = checkbox.closest('.result-card');
+                const similarity = parseInt(card.dataset.similarity);
+                
+                if (similarity >= currentFilterThreshold) {
+                    checkbox.checked = true;
+                    selectedImages.add(checkbox.dataset.path);
+                } else {
+                    checkbox.checked = false;
+                }
+            });
+            
+            updateSelectAllCheckbox();
+            updateExportButton();
+        }
+
+        async function searchFaces() {
+            if (!selectedFile) {
+                showStatus('Please upload or paste an image first', 'error');
+                return;
+            }
+
+            const directory = directoryInput.value.trim();
+            if (!directory) {
+                showStatus('Please enter a directory path to search', 'error');
+                return;
+            }
+
+            // Always search at 30% threshold to get all potential matches
+            const searchThreshold = 30;
+
+            // Show loading state and prepare results section
+            const searchBtn = document.getElementById('searchBtn');
+            const originalText = searchBtn.textContent;
+            searchBtn.disabled = true;
+            searchBtn.textContent = 'Searching...';
+            
+            // Show results section immediately and clear previous results
+            const resultsSection = document.getElementById('resultsSection');
+            const resultsGrid = document.getElementById('resultsGrid');
+            const resultsCount = document.getElementById('resultsCount');
+            const progressBar = document.getElementById('progressBar');
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            const progressPercent = document.getElementById('progressPercent');
+            
+            resultsSection.style.display = 'block';
+            progressBar.style.display = 'block';
+            resultsGrid.innerHTML = '<div class="loading-message">🔍 Searching for matching faces...</div>';
+            resultsCount.textContent = 'Preparing to search...';
+            progressFill.style.width = '0%';
+            progressPercent.textContent = '0%';
+            allMatches = [];
+            selectedImages.clear();
+
+            try {
+                const formData = new FormData();
+                formData.append('image', selectedFile);
+                formData.append('directory', directory);
+                formData.append('threshold', searchThreshold);
+
+                const response = await fetch('/search_stream', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // Keep incomplete line in buffer
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.substring(6));
+                                
+                                if (data.type === 'match') {
+                                    // Add match to results in real-time
+                                    allMatches.push(data.match);
+                                    addMatchToGrid(data.match);
+                                    updateResultsCount();
+                                } else if (data.type === 'progress') {
+                                    const percent = Math.round((data.processed / data.total) * 100);
+                                    progressFill.style.width = percent + '%';
+                                    progressPercent.textContent = percent + '%';
+                                    progressText.textContent = `Searching... ${data.processed} / ${data.total} files`;
+                                    resultsCount.textContent = `Searching... ${data.processed} / ${data.total} files processed`;
+                                } else if (data.type === 'complete') {
+                                    progressBar.style.display = 'none';
+                                    resultsCount.textContent = `Search complete!`;
+                                    showStatus(`Found ${allMatches.length} matching images!`, 'success');
+                                } else if (data.type === 'info') {
+                                    showStatus(data.message, 'info');
+                                } else if (data.type === 'error') {
+                                    progressBar.style.display = 'none';
+                                    showStatus('Error: ' + data.message, 'error');
+                                }
+                            } catch (e) {
+                                console.error('Parse error:', e);
+                            }
+                        }
+                    }
+                }
+                
+                if (allMatches.length === 0) {
+                    resultsGrid.innerHTML = '<div class="no-results">No matching faces found</div>';
+                    showStatus('No matching faces found', 'warning');
+                }
+                
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+                resultsGrid.innerHTML = '';
+            } finally {
+                searchBtn.disabled = false;
+                searchBtn.textContent = originalText;
+            }
+        }
+        
+        function updateResultsCount() {
+            const filtered = allMatches.filter(m => Math.round(m.similarity) >= currentFilterThreshold);
+            const resultsCount = document.getElementById('resultsCount');
+            resultsCount.textContent = `Found ${allMatches.length} total matches (${filtered.length} above ${currentFilterThreshold}% threshold)`;
+        }
+
+        let selectedImages = new Set();
+
+        function addMatchToGrid(match) {
+            if (!match || !match.path) return;
+            
+            const resultsGrid = document.getElementById('resultsGrid');
+            
+            // Remove loading message if it exists
+            const loadingMsg = resultsGrid.querySelector('.loading-message');
+            if (loadingMsg) {
+                loadingMsg.remove();
+            }
+            
+            const similarity = Math.round(match.similarity || 0);
+            
+            // Apply filter threshold
+            const isVisible = similarity >= currentFilterThreshold;
+            
+            const card = document.createElement('div');
+            card.className = 'result-card';
+            card.dataset.path = match.path;
+            card.dataset.similarity = similarity;
+            card.style.display = isVisible ? 'block' : 'none';
+            
+            const fileName = match.path.split('\\').pop().split('/').pop();
+            const imageUrl = `/image/${encodeURIComponent(match.path)}`;
+            
+            card.innerHTML = `
+                <div class="checkbox-container">
+                    <input type="checkbox" class="result-checkbox" data-path="${match.path}" onchange="toggleImageSelection('${match.path}')">
+                </div>
+                <div class="result-image-container" onclick="viewImage('${imageUrl.replace(/'/g, "\\'")}', '${fileName.replace(/'/g, "\\'")}', '${match.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')">
+                    <img src="${imageUrl}" alt="${fileName}" 
+                         onerror="this.parentElement.innerHTML='<div class=\\'image-error\\'>Image preview not available<br><small>${match.path}</small></div>'">
+                </div>
+                <div class="result-info">
+                    <div class="similarity-badge">${similarity}% match</div>
+                    <div class="file-name" title="${match.path}">${fileName}</div>
+                    <div class="file-path">${match.path}</div>
+                    <div class="result-actions">
+                        <button onclick="viewImage('${imageUrl.replace(/'/g, "\\'")}', '${fileName.replace(/'/g, "\\'")}', '${match.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" class="view-btn" title="View Image">
+                            👁️ View
+                        </button>
+                        <button onclick="openLocation('${match.path.replace(/\\/g, '\\\\')}')" class="open-btn" title="Open File Location">
+                            📁 Location
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            resultsGrid.appendChild(card);
+        }
+
+        function displayResults(matches, total) {
+            // This is now used for re-filtering existing results
+            const resultsGrid = document.getElementById('resultsGrid');
+            
+            // Update visibility based on filter threshold
+            const cards = resultsGrid.querySelectorAll('.result-card');
+            cards.forEach(card => {
+                const similarity = parseInt(card.dataset.similarity);
+                card.style.display = similarity >= currentFilterThreshold ? 'block' : 'none';
+            });
+            
+            updateResultsCount();
+        }
+
+        function toggleImageSelection(path) {
+            if (selectedImages.has(path)) {
+                selectedImages.delete(path);
+            } else {
+                selectedImages.add(path);
+            }
+            updateSelectAllCheckbox();
+            updateExportButton();
+        }
+
+        function toggleSelectAll() {
+            const selectAllCheckbox = document.getElementById('selectAll');
+            const checkboxes = document.querySelectorAll('.result-checkbox');
+            
+            selectedImages.clear();
+            checkboxes.forEach(checkbox => {
+                const card = checkbox.closest('.result-card');
+                // Only select visible cards (above threshold)
+                if (card.style.display !== 'none') {
+                    checkbox.checked = selectAllCheckbox.checked;
+                    if (selectAllCheckbox.checked) {
+                        selectedImages.add(checkbox.dataset.path);
+                    }
+                } else {
+                    checkbox.checked = false;
+                }
+            });
+            updateExportButton();
+        }
+
+        function updateSelectAllCheckbox() {
+            const checkboxes = document.querySelectorAll('.result-checkbox');
+            const selectAllCheckbox = document.getElementById('selectAll');
+            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+            selectAllCheckbox.checked = allChecked && checkboxes.length > 0;
+        }
+
+        function updateExportButton() {
+            const exportBtn = document.getElementById('exportBtn');
+            exportBtn.disabled = selectedImages.size === 0;
+            exportBtn.textContent = `📤 Export Selected (${selectedImages.size})`;
+        }
+
+        function viewImage(imageUrl, fileName, filePath) {
+            const popup = document.getElementById('imagePopup');
+            const popupImage = document.getElementById('popupImage');
+            const popupInfo = document.getElementById('popupInfo');
+            
+            popupImage.src = imageUrl;
+            popupInfo.innerHTML = `
+                <strong>${fileName}</strong><br>
+                <small>${filePath}</small>
+            `;
+            popup.style.display = 'flex';
+        }
+
+        function closeImagePopup() {
+            document.getElementById('imagePopup').style.display = 'none';
+        }
+
+        // Close popup with Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeImagePopup();
+            }
+        });
+
+        function copyPath(path) {
+            navigator.clipboard.writeText(path).then(() => {
+                showStatus('Path copied to clipboard!', 'success');
+            }).catch(() => {
+                showStatus('Failed to copy path', 'error');
+            });
+        }
+
+        async function openLocation(path) {
+            try {
+                const response = await fetch('/open_location', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ path: path })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    showStatus('File location opened in Explorer', 'success');
+                } else {
+                    showStatus('Could not open location: ' + (data.error || 'Unknown error'), 'warning');
+                    copyPath(path);
+                }
+            } catch (error) {
+                showStatus('Error opening location. Path copied to clipboard.', 'warning');
+                copyPath(path);
+            }
+        }
+
+        let exportDestinationPath = null;
+
+        function exportSelected() {
+            if (selectedImages.size === 0) {
+                showStatus('Please select at least one image to export', 'warning');
+                return;
+            }
+
+            // Trigger directory picker
+            const dirInput = document.createElement('input');
+            dirInput.type = 'text';
+            dirInput.placeholder = 'Enter destination folder path (e.g., C:\\Exported Images)';
+            
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+            
+            const modalContent = document.createElement('div');
+            modalContent.style.cssText = 'background: white; padding: 30px; border-radius: 12px; max-width: 500px; width: 90%;';
+            modalContent.innerHTML = `
+                <h3 style="margin-bottom: 20px;">Export ${selectedImages.size} Image${selectedImages.size !== 1 ? 's' : ''}</h3>
+                <p style="margin-bottom: 15px;">Enter the destination folder path:</p>
+                <input type="text" id="exportPathInput" placeholder="C:\\Exported Images" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; margin-bottom: 15px; font-size: 1em;">
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button onclick="this.closest('.export-modal').remove()" style="padding: 10px 20px; border: 1px solid #ddd; background: white; border-radius: 6px; cursor: pointer;">Cancel</button>
+                    <button onclick="confirmExport()" style="padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer;">Export</button>
+                </div>
+            `;
+            
+            modalContent.className = 'export-modal';
+            modal.appendChild(modalContent);
+            document.body.appendChild(modal);
+            
+            document.getElementById('exportPathInput').focus();
+            
+            // Allow Enter key to confirm
+            document.getElementById('exportPathInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    confirmExport();
+                }
+            });
+        }
+
+        async function confirmExport() {
+            const pathInput = document.getElementById('exportPathInput');
+            const destinationPath = pathInput.value.trim();
+            
+            if (!destinationPath) {
+                showStatus('Please enter a destination folder path', 'warning');
+                return;
+            }
+
+            // Close modal
+            document.querySelector('.export-modal').closest('div').remove();
+
+            // Show loading
+            showStatus(`Exporting ${selectedImages.size} image${selectedImages.size !== 1 ? 's' : ''}...`, 'info');
+            const exportBtn = document.getElementById('exportBtn');
+            exportBtn.disabled = true;
+            exportBtn.textContent = '📤 Exporting...';
+
+            try {
+                const response = await fetch('/export_files', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        files: Array.from(selectedImages),
+                        destination: destinationPath
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    showStatus(`✅ Successfully exported ${data.copied} file${data.copied !== 1 ? 's' : ''} to ${destinationPath}`, 'success');
+                    if (data.failed > 0) {
+                        showStatus(`⚠️ ${data.failed} file${data.failed !== 1 ? 's' : ''} could not be copied`, 'warning');
+                    }
+                } else {
+                    showStatus('Export failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showStatus('Export error: ' + error.message, 'error');
+            } finally {
+                updateExportButton();
+            }
+        }
+
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.textContent = message;
+            statusDiv.className = 'status-message ' + type;
+            statusDiv.style.display = 'block';
+
+            // Auto-hide success messages after 5 seconds
+            if (type === 'success' || type === 'info') {
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                }, 5000);
+            }
+        }
+    </script>
+</body>
+</html>
