@@ -1,4 +1,4 @@
-# 🔍 Face Recognition Search Engine# Face Recognition Search Web Application
+# 🔍 Face Recognition Search Web Application
 
 
 
