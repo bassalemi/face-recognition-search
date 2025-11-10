@@ -1,4 +1,4 @@
-# 🔍 Face Recognition Search Web Application
+# 🔍 GPU-Accelerated Face Recognition Search
 
 
 
