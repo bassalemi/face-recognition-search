@@ -21,6 +21,7 @@
                     id="directory" 
                     placeholder="Enter the directory path to search (e.g., C:\Photos)"
                     value=""
+                    oninput="saveDirectoryInput()"
                 >
                 <button onclick="browseDirectory()" class="browse-btn">Browse</button>
             </div>
@@ -43,9 +44,32 @@
                 >
                 <img id="previewImage" style="display: none; max-width: 100%; max-height: 300px; margin-top: 10px;">
             </div>
+            
+            <!-- Index stats and controls - shown below preview image -->
+            <div id="indexStatsSection" style="display: none; margin-top: 15px; padding: 15px; background: #f5f5f5; border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <div id="indexStats" style="font-size: 0.95em; color: #333;"></div>
+                    <button onclick="confirmDeleteIndices()" class="delete-btn" style="padding: 6px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em;">
+                        🗑️ Delete Index
+                    </button>
+                </div>
+                <div id="liveIndexStats" style="display: none; margin-top: 10px; padding: 10px; background: white; border-radius: 4px; font-size: 0.9em;">
+                    <div style="margin-bottom: 5px;">
+                        <strong>Indexing:</strong> <span id="liveIndexProgress">0 / 0</span>
+                    </div>
+                    <div style="display: flex; gap: 20px; font-size: 0.85em; color: #666;">
+                        <span>✅ Faces: <strong id="liveFacesFound">0</strong></span>
+                        <span>❌ No Face: <strong id="liveNoFace">0</strong></span>
+                        <span>⚡ Speed: <strong id="liveSpeed">0</strong> img/s</span>
+                    </div>
+                </div>
+            </div>
 
             <button id="searchBtn" class="search-btn" onclick="searchFaces()">
                 Search for Matching Faces
+            </button>
+            <button id="stopIndexBtn" class="stop-btn" onclick="stopIndexing()" style="display: none; margin-top: 10px; background: #ffc107; color: #000;">
+                ⏸️ Stop Indexing
             </button>
         </div>
 
@@ -55,11 +79,10 @@
             <div class="results-header">
                 <h2>Results</h2>
                 <div class="results-actions">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="selectAll" onclick="toggleSelectAll()">
-                        <span>Select All Visible</span>
-                    </label>
-                    <button onclick="selectAboveThreshold()" class="select-threshold-btn">
+                    <button onclick="removeDuplicates()" class="remove-duplicates-btn" id="removeDuplicatesBtn" style="display: none;">
+                        🔄 Remove Duplicates
+                    </button>
+                    <button onclick="selectAboveThreshold()" class="select-threshold-btn" id="selectThresholdBtn" style="display: none;">
                         ✓ Select Above Threshold
                     </button>
                     <button onclick="exportSelected()" class="export-btn" id="exportBtn" disabled>
@@ -105,7 +128,9 @@
     <div id="imagePopup" class="image-popup" style="display: none;" onclick="closeImagePopup()">
         <div class="image-popup-content" onclick="event.stopPropagation()">
             <span class="close-popup" onclick="closeImagePopup()">&times;</span>
-            <img id="popupImage" src="" alt="Image viewer">
+            <div id="popupImageContainer" style="width:100%;height:80vh;overflow:hidden;display:flex;align-items:center;justify-content:center;">
+                <img id="popupImage" src="" alt="Image viewer" style="max-width:none; max-height:none; transition: transform 0.2s; cursor:grab; position:relative;">
+            </div>
             <div class="popup-info" id="popupInfo"></div>
         </div>
     </div>
@@ -114,13 +139,14 @@
     <input type="file" id="exportDirPicker" webkitdirectory directory style="display: none;" onchange="handleExportDirectorySelection(event)">
 
     <script>
-        let selectedFile = null;
-        let allMatches = []; // Store all matches for filtering
-        let currentFilterThreshold = 30;
-
-        // File input handling
-        const uploadArea = document.getElementById('uploadArea');
-        const fileInput = document.getElementById('fileInput');
+    let selectedFile = null;
+    let allMatches = []; // Store all matches for filtering
+    let currentFilterThreshold = 30;
+    // Global reference for popup image
+    const popupImage = document.getElementById('popupImage');
+    // File input handling
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
         const previewImage = document.getElementById('previewImage');
         const directoryInput = document.getElementById('directory');
 
@@ -174,6 +200,10 @@
             reader.onload = (e) => {
                 previewImage.src = e.target.result;
                 previewImage.style.display = 'block';
+                
+                // Show index stats section below preview
+                document.getElementById('indexStatsSection').style.display = 'block';
+                loadIndexStats();
             };
             reader.readAsDataURL(file);
 
@@ -244,6 +274,58 @@
             updateExportButton();
         }
 
+        async function removeDuplicates() {
+            if (allMatches.length === 0) {
+                showStatus('No results to deduplicate', 'warning');
+                return;
+            }
+
+            const btn = document.getElementById('removeDuplicatesBtn');
+            const originalText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '🔄 Removing...';
+
+            try {
+                // Prepare the matches data
+                const matchesData = allMatches.map(m => ({
+                    path: m.path,
+                    similarity: m.similarity
+                }));
+
+                const response = await fetch('/deduplicate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ matches: matchesData })
+                });
+
+                const result = await response.json();
+                
+                // Always restore button caption after deduplication
+                btn.textContent = '🔄 Remove Duplicates';
+                if (result.success) {
+                    // Update allMatches with deduplicated results
+                    allMatches = result.deduplicated_matches;
+                    // Clear and redisplay results
+                    const resultsGrid = document.getElementById('resultsGrid');
+                    resultsGrid.innerHTML = '';
+                    selectedImages.clear();
+                    allMatches.forEach(match => addMatchToGrid(match));
+                    updateResultsCount();
+                    showStatus(`✓ Removed ${result.duplicates_removed} duplicates (${allMatches.length} unique results remaining)`, 'success');
+                    // Keep button disabled after deduplication (don't hide it)
+                } else {
+                    showStatus('Error: ' + result.error, 'error');
+                    btn.disabled = false;
+                }
+            } catch (error) {
+                showStatus('Error removing duplicates: ' + error.message, 'error');
+                btn.disabled = false;
+                btn.textContent = '🔄 Remove Duplicates';
+            }
+        }
+
         async function searchFaces() {
             if (!selectedFile) {
                 showStatus('Please upload or paste an image first', 'error');
@@ -282,6 +364,14 @@
             progressPercent.textContent = '0%';
             allMatches = [];
             selectedImages.clear();
+            
+            // Reset action buttons at start of new search
+            const removeDuplicatesBtn = document.getElementById('removeDuplicatesBtn');
+            const selectThresholdBtn = document.getElementById('selectThresholdBtn');
+            removeDuplicatesBtn.style.display = 'none';
+            removeDuplicatesBtn.disabled = false;
+            removeDuplicatesBtn.textContent = '🔄 Remove Duplicates';
+            selectThresholdBtn.style.display = 'none';
 
             try {
                 const formData = new FormData();
@@ -316,6 +406,38 @@
                                     allMatches.push(data.match);
                                     addMatchToGrid(data.match);
                                     updateResultsCount();
+                                } else if (data.type === 'phase') {
+                                    // Phase change: indexing -> matching
+                                    if (data.phase === 'indexing') {
+                                        progressText.textContent = '📑 Indexing new files...';
+                                    } else if (data.phase === 'preparing') {
+                                        progressText.textContent = '⚙️ Preparing search index...';
+                                    } else if (data.phase === 'matching') {
+                                        progressText.textContent = '🔍 Matching faces...';
+                                    }
+                                } else if (data.type === 'indexing_stats') {
+                                    // Real-time indexing statistics
+                                    const percent = Math.round((data.indexed / data.total) * 100);
+                                    progressFill.style.width = percent + '%';
+                                    progressPercent.textContent = percent + '%';
+                                    progressText.textContent = `📑 Indexing... ${data.indexed} / ${data.total} files`;
+                                    resultsCount.textContent = `Indexing... ${data.indexed} / ${data.total} files`;
+                                    
+                                    // Update live stats
+                                    document.getElementById('liveIndexStats').style.display = 'block';
+                                    document.getElementById('liveIndexProgress').textContent = `${data.indexed} / ${data.total}`;
+                                    document.getElementById('liveFacesFound').textContent = data.faces_found;
+                                    document.getElementById('liveNoFace').textContent = data.no_face;
+                                    document.getElementById('liveSpeed').textContent = data.speed;
+                                    
+                                    // Show stop button
+                                    document.getElementById('stopIndexBtn').style.display = 'block';
+                                } else if (data.type === 'indexing_progress') {
+                                    const percent = Math.round((data.indexed / data.total) * 100);
+                                    progressFill.style.width = percent + '%';
+                                    progressPercent.textContent = percent + '%';
+                                    progressText.textContent = `📑 Indexing... ${data.indexed} / ${data.total} files`;
+                                    resultsCount.textContent = `Indexing... ${data.indexed} / ${data.total} files`;
                                 } else if (data.type === 'progress') {
                                     const percent = Math.round((data.processed / data.total) * 100);
                                     progressFill.style.width = percent + '%';
@@ -326,6 +448,19 @@
                                     progressBar.style.display = 'none';
                                     resultsCount.textContent = `Search complete!`;
                                     showStatus(`Found ${allMatches.length} matching images!`, 'success');
+                                    
+                                    // Show both action buttons if we have results
+                                    if (allMatches.length > 0) {
+                                        document.getElementById('removeDuplicatesBtn').style.display = 'inline-block';
+                                        document.getElementById('selectThresholdBtn').style.display = 'inline-block';
+                                    }
+                                    
+                                    // Hide stop button and live stats
+                                    document.getElementById('stopIndexBtn').style.display = 'none';
+                                    document.getElementById('liveIndexStats').style.display = 'none';
+                                    
+                                    // Reload index stats
+                                    loadIndexStats();
                                 } else if (data.type === 'info') {
                                     showStatus(data.message, 'info');
                                 } else if (data.type === 'error') {
@@ -386,7 +521,20 @@
             const fileName = match.path.split('\\').pop().split('/').pop();
             const imageUrl = `/image/${encodeURIComponent(match.path)}`;
             
+            // Remove face indicator from search results
+            let faceIndicator = '';
+            
+            // Make card draggable
+            card.draggable = true;
+            card.ondragstart = handleDragStart;
+            card.ondragover = handleDragOver;
+            card.ondragenter = handleDragEnter;
+            card.ondragleave = handleDragLeave;
+            card.ondrop = handleDrop;
+            card.ondragend = handleDragEnd;
+            
             card.innerHTML = `
+                <div class="drag-handle" title="Drag to reorder">⋮⋮</div>
                 <div class="checkbox-container">
                     <input type="checkbox" class="result-checkbox" data-path="${match.path}" onchange="toggleImageSelection('${match.path}')">
                 </div>
@@ -471,15 +619,88 @@
 
         function viewImage(imageUrl, fileName, filePath) {
             const popup = document.getElementById('imagePopup');
-            const popupImage = document.getElementById('popupImage');
             const popupInfo = document.getElementById('popupInfo');
-            
             popupImage.src = imageUrl;
+            popupImage.style.transform = 'scale(1) translate(0px, 0px)';
+            popupImage.dataset.zoom = '1';
+            popupImage.dataset.panX = '0';
+            popupImage.dataset.panY = '0';
             popupInfo.innerHTML = `
                 <strong>${fileName}</strong><br>
                 <small>${filePath}</small>
             `;
             popup.style.display = 'flex';
+        // Zoom with Ctrl+mouse wheel or Arrow Up, pan with drag
+    let isDragging = false, dragStartX = 0, dragStartY = 0, panStartX = 0, panStartY = 0;
+
+        document.getElementById('popupImageContainer').addEventListener('wheel', function(e) {
+            if (!popupImage.src) return;
+            if (e.ctrlKey || e.metaKey) {
+                let zoom = parseFloat(popupImage.dataset.zoom || '1');
+                if (e.deltaY < 0) {
+                    zoom *= 1.03;
+                } else {
+                    zoom *= 0.97;
+                }
+                zoom = Math.max(0.1, Math.min(zoom, 10));
+                popupImage.dataset.zoom = zoom;
+                updatePopupTransform();
+                e.preventDefault();
+            }
+        }, { passive: false });
+
+        document.addEventListener('keydown', function(e) {
+            if (document.getElementById('imagePopup').style.display !== 'none') {
+                if (e.key === 'ArrowUp') {
+                    let zoom = parseFloat(popupImage.dataset.zoom || '1');
+                    zoom = Math.min(zoom * 1.1, 10);
+                    popupImage.dataset.zoom = zoom;
+                    updatePopupTransform();
+                }
+                if (e.key === 'ArrowDown') {
+                    let zoom = parseFloat(popupImage.dataset.zoom || '1');
+                    zoom = Math.max(zoom * 0.9, 0.1);
+                    popupImage.dataset.zoom = zoom;
+                    updatePopupTransform();
+                }
+                if (e.key === '0') {
+                    popupImage.dataset.zoom = '1';
+                    popupImage.dataset.panX = '0';
+                    popupImage.dataset.panY = '0';
+                    updatePopupTransform();
+                }
+            }
+        });
+
+        function updatePopupTransform() {
+            const zoom = parseFloat(popupImage.dataset.zoom || '1');
+            const panX = parseFloat(popupImage.dataset.panX || '0');
+            const panY = parseFloat(popupImage.dataset.panY || '0');
+            popupImage.style.transform = `scale(${zoom}) translate(${panX}px, ${panY}px)`;
+        }
+
+        popupImage.addEventListener('mousedown', function(e) {
+            isDragging = true;
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            panStartX = parseFloat(popupImage.dataset.panX || '0');
+            panStartY = parseFloat(popupImage.dataset.panY || '0');
+            popupImage.style.cursor = 'grabbing';
+        });
+        window.addEventListener('mousemove', function(e) {
+            if (!isDragging) return;
+            const dx = e.clientX - dragStartX;
+            const dy = e.clientY - dragStartY;
+            popupImage.dataset.panX = panStartX + dx;
+            popupImage.dataset.panY = panStartY + dy;
+            updatePopupTransform();
+        });
+        window.addEventListener('mouseup', function() {
+            if (isDragging) {
+                isDragging = false;
+                popupImage.style.cursor = 'grab';
+            }
+        });
         }
 
         function closeImagePopup() {
@@ -626,6 +847,141 @@
                 }, 5000);
             }
         }
+
+        // Load index statistics on page load
+        async function loadIndexStats() {
+            try {
+                const response = await fetch('/index_stats');
+                const stats = await response.json();
+                
+                const statsDiv = document.getElementById('indexStats');
+                if (stats.error) {
+                    statsDiv.textContent = '';
+                } else {
+                        statsDiv.innerHTML = `
+                            📊 <strong>${stats.total_files.toLocaleString()}</strong> total files indexed<br>
+                            ✅ <strong>${stats.faces_found.toLocaleString()}</strong> files with faces<br>
+                            ❌ <strong>${stats.no_faces.toLocaleString()}</strong> files with no faces
+                        `;
+                }
+            } catch (error) {
+                console.error('Failed to load index stats:', error);
+            }
+        }
+
+        async function stopIndexing() {
+            try {
+                const response = await fetch('/stop_indexing', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    showStatus(data.message, 'info');
+                    document.getElementById('stopIndexBtn').style.display = 'none';
+                }
+            } catch (error) {
+                showStatus('Failed to stop indexing: ' + error.message, 'error');
+            }
+        }
+
+        async function confirmDeleteIndices() {
+            if (!confirm('⚠️ WARNING: This will delete the entire index!\n\nAll indexed data will be lost and you will need to re-index your photos.\n\nAre you sure you want to continue?')) {
+                return;
+            }
+            
+            try {
+                showStatus('Deleting index...', 'info');
+                const response = await fetch('/delete_indices', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showStatus('✅ ' + data.message, 'success');
+                    loadIndexStats();
+                    
+                    // Hide live stats if visible
+                    document.getElementById('liveIndexStats').style.display = 'none';
+                } else {
+                    showStatus('❌ Failed to delete index: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showStatus('Error deleting index: ' + error.message, 'error');
+            }
+        }
+
+        // Drag and drop functionality
+        let draggedElement = null;
+
+        function handleDragStart(e) {
+            draggedElement = this;
+            this.style.opacity = '0.4';
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/html', this.innerHTML);
+        }
+
+        function handleDragOver(e) {
+            if (e.preventDefault) {
+                e.preventDefault();
+            }
+            e.dataTransfer.dropEffect = 'move';
+            return false;
+        }
+
+        function handleDragEnter(e) {
+            if (this !== draggedElement) {
+                this.classList.add('drag-over');
+            }
+        }
+
+        function handleDragLeave(e) {
+            this.classList.remove('drag-over');
+        }
+
+        function handleDrop(e) {
+            if (e.stopPropagation) {
+                e.stopPropagation();
+            }
+
+            if (draggedElement !== this) {
+                // Get the parent grid
+                const grid = this.parentNode;
+                const allCards = Array.from(grid.children);
+                const draggedIndex = allCards.indexOf(draggedElement);
+                const targetIndex = allCards.indexOf(this);
+
+                // Reorder the elements
+                if (draggedIndex < targetIndex) {
+                    this.parentNode.insertBefore(draggedElement, this.nextSibling);
+                } else {
+                    this.parentNode.insertBefore(draggedElement, this);
+                }
+            }
+
+            this.classList.remove('drag-over');
+            return false;
+        }
+
+        function handleDragEnd(e) {
+            this.style.opacity = '1';
+            
+            // Remove all drag-over classes
+            document.querySelectorAll('.result-card').forEach(card => {
+                card.classList.remove('drag-over');
+            });
+        }
+
+        // Load stats when page loads
+        window.addEventListener('load', loadIndexStats);
+    // Restore last used directory from localStorage
+    window.addEventListener('load', function() {
+        const lastDir = localStorage.getItem('searchDirectory');
+        if (lastDir) {
+            document.getElementById('directory').value = lastDir;
+        }
+    });
+
+    // Save directory input to localStorage
+    function saveDirectoryInput() {
+        const dirInput = document.getElementById('directory').value;
+        localStorage.setItem('searchDirectory', dirInput);
+    }
     </script>
 </body>
 </html>

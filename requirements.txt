@@ -1,0 +1,34 @@
+Flask==3.1.2
+flask-cors==6.0.1
+numpy==2.2.6
+opencv-python==4.12.0.88
+Pillow==12.0.0
+ImageHash==4.3.2
+tqdm==4.67.1
+faiss-cpu==1.8.0
+insightface==0.7.3
+onnxruntime==1.18.0
+# Face Recognition Search - Python Dependencies
+
+# Core web framework
+flask==3.0.0
+
+# Face recognition and AI
+insightface==0.7.3
+onnxruntime-gpu==1.23.2  # GPU acceleration
+
+# Image processing
+opencv-python==4.8.1.78
+pillow==10.1.0
+
+# Numerical computing
+numpy==1.24.3
+
+# FAISS for fast similarity search
+# For GPU version (recommended with CUDA):
+faiss-gpu==1.7.4
+
+# For CPU-only version (fallback):
+# faiss-cpu==1.7.4
+
+# Note: Install only ONE of faiss-gpu or faiss-cpu, not both

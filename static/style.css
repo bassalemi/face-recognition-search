@@ -195,6 +195,7 @@ header p {
     flex-wrap: wrap;
 }
 
+.remove-duplicates-btn,
 .select-threshold-btn {
     padding: 10px 20px;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -205,11 +206,20 @@ header p {
     font-size: 0.95em;
     font-weight: 600;
     transition: all 0.3s;
+    margin-right: 10px;
 }
 
+.remove-duplicates-btn:hover,
 .select-threshold-btn:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+}
+
+.remove-duplicates-btn:disabled,
+.select-threshold-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
 }
 
 .filter-section {
@@ -346,13 +356,39 @@ header p {
     border: 1px solid #ddd;
     border-radius: 12px;
     overflow: hidden;
-    transition: transform 0.2s, box-shadow 0.2s;
+    transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
     position: relative;
+    cursor: move;
 }
 
 .result-card:hover {
     transform: translateY(-4px);
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+.result-card.drag-over {
+    border: 2px dashed #667eea;
+    background: #f0f4ff;
+    transform: scale(1.02);
+}
+
+.drag-handle {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 10;
+    background: rgba(255, 255, 255, 0.95);
+    padding: 4px 8px;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    cursor: grab;
+    font-size: 16px;
+    color: #667eea;
+    user-select: none;
+}
+
+.drag-handle:active {
+    cursor: grabbing;
 }
 
 .checkbox-container {
@@ -421,6 +457,18 @@ header p {
     font-weight: 600;
     font-size: 0.9em;
     margin-bottom: 10px;
+}
+
+.face-indicator {
+    display: inline-block;
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    color: white;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-weight: 500;
+    font-size: 0.85em;
+    margin-bottom: 10px;
+    margin-left: 8px;
 }
 
 .file-name {

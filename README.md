@@ -1,3 +1,79 @@
+# Face Recognition Search
+
+GPU-accelerated face recognition and search with InsightFace and FAISS, featuring multi-face indexing per image, image-based deduplication via perceptual hash, and a clean web UI.
+
+## Features
+- Indexes all faces per image using InsightFace
+- FAISS-based similarity search (cosine similarity)
+- Image-based deduplication using perceptual hash (phash)
+- Live stats: total files, files with faces, files without faces
+- On-demand deduplication with accurate unique results
+- Image viewer with zoom (Ctrl+mouse wheel or Arrow Up/Down) and drag-to-pan
+- Windows Explorer integration to open file location
+
+## Requirements
+- Python 3.9+
+- GPU optional: ONNX Runtime CUDA provider (if available)
+
+## Installation
+Create and activate a virtual environment, then install dependencies:
+
+```powershell
+# From repository root
+python -m venv venv
+./venv/Scripts/Activate.ps1
+pip install -r requirements.txt
+```
+
+## Running the app
+```powershell
+python app.py
+```
+Server runs at http://127.0.0.1:5001
+
+## Usage
+1. Enter a directory to search.
+2. Upload or paste a reference face image.
+3. Click "Search for Matching Faces".
+4. Use the filter slider to adjust similarity.
+5. Use "Remove Duplicates" to collapse results to unique images (phash-based).
+6. Click "Location" to open the file in Explorer.
+7. Click "View" to open the image viewer; zoom/pan with Ctrl+wheel or Arrow keys, drag to pan.
+
+## Deduplication
+- Uses perceptual hash (phash) stored per image.
+- Two results with the same phash are treated as duplicates, regardless of filenames.
+- No threshold is applied for hash-based deduplication.
+
+## Indexing and Stats
+- Index stores multiple faces per image; metadata tracks `face_index` and `total_faces`.
+- Stats endpoint returns unique file counts: total files, files with faces, files without faces.
+
+## Maintenance scripts
+- `add_perceptual_hash_to_index.py`: populates phash for existing index.
+
+Run it:
+```powershell
+python add_perceptual_hash_to_index.py
+```
+
+## Troubleshooting
+- If Explorer location doesn’t open, ensure paths are absolute and the server runs as a user session.
+- If UI changes don’t appear, restart the app and hard refresh the browser (Ctrl+F5).
+- PowerShell script execution: if activation fails, set policy
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+## Project structure
+- `app.py` – Flask server and endpoints
+- `index_manager.py` – FAISS index and SQLite metadata management
+- `templates/index.html` – Frontend UI
+- `static/` – CSS and client assets
+- `face_indices/` – Local index (ignored by Git)
+
+## License
+MIT
 # 🔍 Face Recognition Search Engine# Face Recognition Search Web Application
 
 
@@ -374,4 +450,3 @@ Give a ⭐️ if this project helped you!
 
 ---
 
-*Built with ❤️ using modern AI and GPU acceleration technologies*

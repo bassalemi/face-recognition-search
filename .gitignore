@@ -1,5 +1,29 @@
 # Python
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Environments
+venv/
+.env/
+
+# VS Code
+.vscode/
+
+# Index and database artifacts
+face_indices/
+*.faiss
+*.db
+
+# Temp upload/cache
+temp_upload.jpg
+
+# Node/npm (if any future UI tooling)
+node_modules/
+# Python
+__pycache__/
 *.py[cod]
 *$py.class
 *.so
@@ -27,3 +51,8 @@ Thumbs.db
 debug_*.jpg
 test_*.jpg
 test_*.py
+
+# FAISS indices and metadata
+face_indices/
+*.faiss
+*.db
